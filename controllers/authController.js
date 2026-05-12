@@ -115,7 +115,8 @@ export class AuthController {
       }
 
       // Check if email is verified
-      if (!loginResult.user.isEmailVerified) {
+      const skipVerify = process.env.BYPASS_EMAIL_VERIFY === 'true' || process.env.BYPASS_EMAIL_VERIFY === '1';
+      if (!loginResult.user.isEmailVerified && !skipVerify) {
         return res.status(403).json({
           success: false,
           message: 'กรุณายืนยันอีเมลของคุณก่อนเข้าสู่ระบบ'
@@ -197,6 +198,12 @@ export class AuthController {
       });
     } catch (error) {
       console.error('Get profile error:', error);
+      if (error.name === 'JsonWebTokenError' || error.name === 'TokenExpiredError') {
+        return res.status(401).json({
+          success: false,
+          message: 'Token ไม่ถูกต้องหรือหมดอายุ'
+        });
+      }
       res.status(500).json({
         success: false,
         message: error.message || 'เกิดข้อผิดพลาดในการดึงข้อมูลผู้ใช้'

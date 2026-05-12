@@ -83,6 +83,7 @@ async function connectDB() {
     return conn;
   } catch (error) {
     console.error('❌ connectDB error:', error);
+    console.error('   URI prefix:', MONGODB_URI ? MONGODB_URI.substring(0, 20) + '...' : 'undefined');
     cached.promise = null;
     cached.conn = null;
     throw error;
