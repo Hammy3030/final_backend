@@ -24,7 +24,22 @@ const StudentSchema = new mongoose.Schema({
     index: true
   },
   name: {
-    type: String
+    type: String,
+    required: [true, 'ต้องระบุชื่อ'],
+    validate: {
+      validator: function(v) {
+        return /^(ด\.ช\.|ด\.ญ\.|เด็กชาย|เด็กหญิง)\s?/.test(v);
+      },
+      message: 'ต้องมีคำนำหน้า (ด.ช., ด.ญ., เด็กชาย, เด็กหญิง)'
+    }
+  },
+  firstName: {
+    type: String,
+    index: true
+  },
+  lastName: {
+    type: String,
+    index: true
   },
   // Gamification fields
   stars: {

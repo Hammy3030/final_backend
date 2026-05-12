@@ -58,4 +58,7 @@ TestSchema.virtual('id').get(function() {
   return this._id.toString();
 });
 
+TestSchema.index({ lessonId: 1, type: 1 });
+TestSchema.index({ classroomId: 1, isDeleted: 1 });
+
 export const Test = mongoose.model('Test', TestSchema);

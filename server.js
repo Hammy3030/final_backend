@@ -77,16 +77,26 @@ if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {
   app.use('/uploads', express.static('public/uploads'));
 }
 
-// Database connection middleware
-app.use(async (req, res, next) => {
-  try {
-    await connectDB();
-    next();
-  } catch (error) {
-    console.error('Database connection failed:', error);
-    res.status(503).json({ success: false, message: 'Database connection failed.' });
-  }
-});
+// Database connection handling
+const isProductionVercel = process.env.VERCEL === '1' || !!process.env.VERCEL;
+
+if (!isProductionVercel) {
+  // Local/Normal Server: Connect to DB once at startup
+  connectDB().catch(err => {
+    console.error('Initial Database connection failed:', err);
+  });
+} else {
+  // Vercel Serverless: Connect via middleware to handle cold starts
+  app.use(async (req, res, next) => {
+    try {
+      await connectDB();
+      next();
+    } catch (error) {
+      console.error('Database connection failed:', error);
+      res.status(503).json({ success: false, message: 'Database connection failed.' });
+    }
+  });
+}
 
 // Routes
 app.use('/api/auth', authRoutes);
@@ -101,7 +111,6 @@ app.use(errorHandler);
 
 // Socket.io (Only for non-Vercel environments)
 let server, io;
-const isProductionVercel = process.env.VERCEL === '1' || !!process.env.VERCEL;
 
 if (!isProductionVercel) {
   server = createServer(app);

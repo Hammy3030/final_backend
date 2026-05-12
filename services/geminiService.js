@@ -15,12 +15,53 @@ export class GeminiService {
   }
 
   /**
-   * Detect handwriting using Gemini Vision API
+   * Detect handwriting using Gemini Vision API with retry logic
    * @param {string} imageData - Base64 encoded image (data:image/png;base64,...)
    * @param {string} targetWord - Target character to detect
    * @returns {Promise<Object>} Detection result
    */
   static async detectHandwriting(imageData, targetWord) {
+    let lastError = null;
+    const maxRetries = 3;
+    const baseDelay = 1000; // 1 second
+
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      try {
+        if (attempt > 0) {
+          const delay = baseDelay * Math.pow(2, attempt - 1);
+          console.log(`🔄 Retrying Gemini API (Attempt ${attempt}/${maxRetries}) after ${delay}ms...`);
+          await new Promise(resolve => setTimeout(resolve, delay));
+        }
+
+        return await this._executeDetection(imageData, targetWord);
+      } catch (error) {
+        lastError = error;
+        const errorMessage = error.message.toLowerCase();
+        
+        // Retry only on specific temporary errors
+        const isTemporaryError = 
+          errorMessage.includes('high demand') || 
+          errorMessage.includes('503') || 
+          errorMessage.includes('429') || 
+          errorMessage.includes('quota') ||
+          errorMessage.includes('rate limit') ||
+          errorMessage.includes('overloaded');
+
+        if (!isTemporaryError || attempt === maxRetries) {
+          break;
+        }
+        
+        console.warn(`⚠️ Gemini API temporary error: ${error.message}.`);
+      }
+    }
+
+    throw lastError;
+  }
+
+  /**
+   * Internal method to execute the Gemini API call
+   */
+  static async _executeDetection(imageData, targetWord) {
     if (!this.isConfigured()) {
       throw new Error('Gemini API key not configured. Please set GEMINI_API_KEY in .env file');
     }
@@ -55,9 +96,7 @@ export class GeminiService {
             contents: [
               {
                 parts: [
-                  {
-                    text: prompt
-                  },
+                  { text: prompt },
                   {
                     inline_data: {
                       mime_type: 'image/png',
@@ -68,10 +107,10 @@ export class GeminiService {
               }
             ],
             generationConfig: {
-              temperature: 0.1, // Low temperature for consistent results
+              temperature: 0.1,
               topK: 40,
               topP: 0.95,
-              maxOutputTokens: 2048, // Increased to prevent truncation
+              maxOutputTokens: 2048,
             }
           })
         }
@@ -81,83 +120,56 @@ export class GeminiService {
         const errorData = await response.json().catch(() => ({}));
         console.error('Gemini API Error Response:', errorData);
         
-        // Handle specific error cases
         const errorMessage = errorData.error?.message || `Gemini API request failed: ${response.status}`;
         const errorCode = errorData.error?.code || response.status;
         const status = response.status;
         
-        // Check for quota exceeded (429 or specific quota messages)
         if (status === 429 || errorMessage.toLowerCase().includes('quota') || 
             errorMessage.toLowerCase().includes('rate limit') || 
-            errorMessage.toLowerCase().includes('resource exhausted')) {
-          console.error('⚠️ Gemini API quota/rate limit exceeded');
-          throw new Error('QUOTA_EXCEEDED: Gemini API quota exceeded. This may be due to: 1) Free tier limits reached, 2) Too many requests. Please wait a few minutes and try again, or upgrade your API plan at https://aistudio.google.com/');
+            errorMessage.toLowerCase().includes('resource exhausted') ||
+            errorMessage.toLowerCase().includes('high demand') ||
+            status === 503) {
+          throw new Error(errorMessage);
         }
         
-        // Check for leaked API key error
         if (errorMessage.includes('leaked') || errorMessage.includes('reported')) {
-          throw new Error('API key was reported as leaked. Please create a new API key at https://aistudio.google.com/app/apikey and update GEMINI_API_KEY in your .env file.');
+          throw new Error('API key was reported as leaked.');
         }
         
-        // Check for permission denied (403)
         if (errorCode === 403 || status === 403) {
-          throw new Error('API key permission denied. Please check your API key is valid and has proper permissions.');
+          throw new Error('API key permission denied.');
         }
         
         throw new Error(errorMessage);
       }
 
       const data = await response.json();
-      console.log('Gemini API Response:', JSON.stringify(data, null, 2));
-
-      // Extract text from response
       const textContent = data.candidates?.[0]?.content?.parts?.[0]?.text || '';
       
       if (!textContent) {
         throw new Error('No response from Gemini API');
       }
 
-      console.log('Raw text from Gemini:', textContent);
-
-      // Check if response was truncated (MAX_TOKENS finish reason)
-      const finishReason = data.candidates?.[0]?.finishReason;
-      if (finishReason === 'MAX_TOKENS') {
-        console.warn('⚠️ Gemini response was truncated (MAX_TOKENS). Attempting to fix JSON...');
-      }
-
       // Parse JSON response - handle truncated JSON
       let cleanText = textContent.replaceAll('```json', '').replaceAll('```', '').trim();
-      
-      // Extract JSON object (handle incomplete JSON)
       const jsonMatch = cleanText.match(/\{[\s\S]*/);
       if (jsonMatch) {
         cleanText = jsonMatch[0];
-        
-        // If JSON is incomplete (unterminated string), try to fix it
         if (!cleanText.match(/\}$/)) {
-          // Count open braces
           const openBraces = (cleanText.match(/\{/g) || []).length;
           const closeBraces = (cleanText.match(/\}/g) || []).length;
-          
-          // Close missing braces
           for (let i = 0; i < openBraces - closeBraces; i++) {
             cleanText += '}';
           }
-          
-          // If there's an unterminated string in explanation field, close it
           if (cleanText.includes('"explanation":') && !cleanText.match(/"explanation"\s*:\s*"[^"]*"/)) {
-            // Find the last quote and ensure string is closed
             const lastQuoteIndex = cleanText.lastIndexOf('"');
             if (lastQuoteIndex > 0) {
-              // Check if it's part of an unterminated string
               const beforeQuote = cleanText.substring(0, lastQuoteIndex);
               const quoteCount = (beforeQuote.match(/"/g) || []).length;
               if (quoteCount % 2 === 1) {
-                // Odd number of quotes means unterminated string - add closing quote
                 cleanText = cleanText.substring(0, lastQuoteIndex + 1) + '"';
               }
             }
-            // Ensure explanation field is properly closed
             if (!cleanText.match(/"explanation"\s*:\s*"[^"]*"\s*\}/)) {
               cleanText = cleanText.replace(/"explanation"\s*:\s*"([^"]*)$/, '"explanation": "$1"');
             }
@@ -168,12 +180,8 @@ export class GeminiService {
       let result;
       try {
         result = JSON.parse(cleanText);
-        console.log('Parsed result from Gemini:', result);
       } catch (parseError) {
-        console.error('JSON parse error:', parseError.message);
-        console.error('Cleaned text:', cleanText);
-        
-        // Fallback: Try to extract fields manually
+        console.error('JSON parse error, using manual extraction');
         const detectedMatch = cleanText.match(/"detected"\s*:\s*"([^"]*)"/);
         const isCorrectMatch = cleanText.match(/"isCorrect"\s*:\s*(true|false)/);
         const confidenceMatch = cleanText.match(/"confidence"\s*:\s*(\d+)/);
@@ -185,11 +193,8 @@ export class GeminiService {
           confidence: confidenceMatch ? Number.parseInt(confidenceMatch[1], 10) : 0,
           explanation: explanationMatch ? explanationMatch[1] : 'เกิดข้อผิดพลาดในการประมวลผล'
         };
-        
-        console.warn('⚠️ Using fallback parsing:', result);
       }
 
-      // Return formatted result
       return {
         detectedText: result.detected || '',
         isCorrect: result.isCorrect || false,
@@ -199,7 +204,7 @@ export class GeminiService {
       };
     } catch (error) {
       console.error('Gemini API Error:', error);
-      throw new Error(`Gemini detection failed: ${error.message}`);
+      throw error;
     }
   }
 

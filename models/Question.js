@@ -58,4 +58,6 @@ QuestionSchema.virtual('id').get(function() {
   return this._id.toString();
 });
 
+QuestionSchema.index({ testId: 1, orderIndex: 1 });
+
 export const Question = mongoose.model('Question', QuestionSchema);

@@ -415,6 +415,33 @@ export class StudentController {
     }
   }
 
+  static async markAllNotificationsAsRead(req, res) {
+    try {
+      const { studentId } = extractStudentIds(req.user);
+
+      if (!studentId) {
+        return res.status(400).json({
+          success: false,
+          message: 'ไม่พบข้อมูลนักเรียน'
+        });
+      }
+
+      const result = await StudentService.markAllNotificationsAsRead(studentId);
+
+      res.json({
+        success: true,
+        message: 'อัปเดตสถานะการแจ้งเตือนทั้งหมดแล้ว',
+        data: result
+      });
+    } catch (error) {
+      console.error('Mark all notifications read error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'เกิดข้อผิดพลาดในการอัปเดตสถานะทั้งหมด'
+      });
+    }
+  }
+
   /**
    * Save image and detect handwriting (NEW - Recommended)
    */

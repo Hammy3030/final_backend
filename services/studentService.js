@@ -254,6 +254,7 @@ export class StudentService {
         student_id: studentId,
         title: `🎯 เรียนจบบทเรียนแล้ว`,
         message: `คุณเรียนจบ "${lesson.title}" แล้ว ทำแบบทดสอบหลังเรียนเพื่อทดสอบความรู้ของคุณ`,
+        event_type: 'LESSON_COMPLETED',
         type: 'SUCCESS'
       });
 
@@ -709,6 +710,7 @@ export class StudentService {
         student_id: studentId,
         title: `🎉 ยินดีด้วย คุณผ่านแบบทดสอบแล้ว`,
         message: `คุณทำคะแนนได้ ${score}% ในแบบทดสอบ "${test.title}"`,
+        event_type: 'TEST_PASSED',
         type: 'SUCCESS'
       });
 
@@ -723,6 +725,7 @@ export class StudentService {
           student_id: studentId,
           title: `⭐ ได้รับ ${stars} ดาว`,
           message: `คุณได้รับ ${stars} ดาวจากแบบทดสอบ "${test.title}"`,
+          event_type: 'STAR_AWARDED',
           type: 'SUCCESS'
         });
       }
@@ -732,6 +735,7 @@ export class StudentService {
         student_id: studentId,
         title: `💪 ยังไม่ผ่านแบบทดสอบหลังเรียน`,
         message: `คุณทำคะแนนได้ ${score}% แต่ต้องได้ ${test.passingScore}% ขึ้นไป กรุณาทำใหม่อีกครั้ง`,
+        event_type: 'TEST_FAILED',
         type: 'WARNING'
       });
     }
@@ -818,6 +822,7 @@ export class StudentService {
           student_id: studentId,
           title: `🥇 ได้เหรียญทอง`,
           message: `คุณเล่นเกม "${game.title}" ได้คะแนน 100%`,
+          event_type: 'GAME_GOLD_MEDAL',
           type: 'SUCCESS'
         });
       } else if (isPassed) {
@@ -826,6 +831,7 @@ export class StudentService {
           student_id: studentId,
           title: `🎮 ผ่านเกมแล้ว`,
           message: `คุณเล่นเกม "${game.title}" ได้คะแนน ${gameData.score}%`,
+          event_type: 'GAME_PASSED',
           type: 'SUCCESS'
         });
       }
@@ -897,6 +903,10 @@ export class StudentService {
 
   static async markNotificationAsRead(studentId, notificationId) {
     return await DatabaseService.markNotificationAsRead(studentId, notificationId);
+  }
+
+  static async markAllNotificationsAsRead(studentId) {
+    return await DatabaseService.markAllNotificationsAsRead(studentId);
   }
 
   static async detectHandwritingAI(imageData, targetWord) {
@@ -1019,29 +1029,25 @@ export class StudentService {
       };
 
     } catch (error) {
-      console.error('Gemini API detection error:', error);
+      console.error('Handwriting detection AI error:', error);
+      const errorMessage = error.message.toLowerCase();
 
-      // Check for specific errors
-      if (error.message?.includes('leaked') || error.message?.includes('reported')) {
-        console.error('⚠️ Gemini API key was reported as leaked. Please create a new API key.');
-        throw new Error('API key was reported as leaked. Please create a new API key at https://aistudio.google.com/app/apikey and update GEMINI_API_KEY in your .env file.');
-      } else if (error.message?.includes('API key') || error.message?.includes('401') || error.message?.includes('403')) {
-        console.error('Gemini API authentication failed. Please check your GEMINI_API_KEY.');
-        throw new Error('Gemini API authentication failed. Please check your API key configuration. If you see "leaked" error, create a new API key at https://aistudio.google.com/app/apikey');
-      } else if (error.message?.includes('QUOTA_EXCEEDED') || error.message?.includes('quota') ||
-        error.message?.includes('429') || error.message?.includes('rate limit')) {
-        console.error('⚠️ Gemini API quota/rate limit exceeded');
-        const isQuotaError = error.message.includes('QUOTA_EXCEEDED');
-        const detailedMessage = isQuotaError
-          ? error.message.replace('QUOTA_EXCEEDED: ', '')
-          : 'Gemini API quota exceeded. This may be due to free tier limits or too many requests. Please wait a few minutes and try again, or check your API quota at https://aistudio.google.com/';
-        throw new Error(detailedMessage);
-      } else if (error.message?.includes('JSON')) {
-        console.error('Failed to parse Gemini API response as JSON.');
-        throw new Error('Failed to parse AI response. Please try again.');
+      // Handle temporary high demand / overloaded errors
+      if (errorMessage.includes('high demand') || errorMessage.includes('503') || 
+          errorMessage.includes('overloaded') || errorMessage.includes('temporarily unavailable')) {
+        throw new Error('AI กำลังทำงานหนัก (High Demand) กรุณารอ 5-10 วินาทีแล้วลองกด "ตรวจคำตอบ" ใหม่อีกครั้งนะครับ');
       }
 
-      // Re-throw error to be handled by controller
+      // Check for other specific errors
+      if (error.message?.includes('leaked') || error.message?.includes('reported')) {
+        throw new Error('API key was reported as leaked. Please contact admin.');
+      } else if (error.message?.includes('API key') || error.message?.includes('401') || error.message?.includes('403')) {
+        throw new Error('Gemini API authentication failed.');
+      } else if (error.message?.includes('QUOTA_EXCEEDED') || error.message?.includes('quota') ||
+        error.message?.includes('429') || error.message?.includes('rate limit')) {
+        throw new Error('โควตาการใช้งาน AI เต็มชั่วคราว กรุณาลองใหม่อีกครั้งในภายหลัง');
+      }
+
       throw error;
     }
   }

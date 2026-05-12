@@ -146,6 +146,8 @@ export class DatabaseService {
       studentCode: studentData.student_code,
       qrCode: studentData.qr_code,
       name: studentData.name,
+      firstName: studentData.first_name,
+      lastName: studentData.last_name,
     });
   }
 
@@ -704,6 +706,11 @@ export class DatabaseService {
       studentId: notificationData.student_id,
       title: notificationData.title,
       message: notificationData.message,
+      actorType: notificationData.actor_type || 'SYSTEM',
+      actorId: notificationData.actor_id || null,
+      eventType: notificationData.event_type || 'GENERAL',
+      classroomId: notificationData.classroom_id || null,
+      announcementId: notificationData.announcement_id || null,
       type: notificationData.type || 'INFO',
       isRead: false,
     });
@@ -726,7 +733,41 @@ export class DatabaseService {
     }
 
     const notifications = await Notification.find(query).sort({ createdAt: -1 }).limit(20);
-    return notifications.map(n => n.toObject());
+    const notificationObjects = notifications.map(n => n.toObject());
+
+    // Enrich teacher announcement notifications with teacherName for frontend display
+    const teacherActorIds = [...new Set(
+      notificationObjects
+        .filter((n) => n.actorType === 'TEACHER' && n.actorId)
+        .map((n) => String(n.actorId))
+    )];
+
+    if (teacherActorIds.length === 0) {
+      return notificationObjects;
+    }
+
+    const teachers = await Teacher.find({ _id: { $in: teacherActorIds } })
+      .select('_id name userId')
+      .populate('userId', 'name')
+      .lean();
+
+    const teacherNameById = new Map(
+      teachers.map((teacher) => {
+        const resolvedName = teacher.name || teacher.userId?.name || 'ครู';
+        return [String(teacher._id), resolvedName];
+      })
+    );
+
+    return notificationObjects.map((notification) => {
+      if (notification.actorType !== 'TEACHER' || !notification.actorId) {
+        return notification;
+      }
+
+      return {
+        ...notification,
+        teacherName: teacherNameById.get(String(notification.actorId)) || 'ครู'
+      };
+    });
   }
 
   static async markNotificationAsRead(studentId, notificationId) {
@@ -764,6 +805,36 @@ export class DatabaseService {
     }
 
     return notification.toObject();
+  }
+
+  static async markAllNotificationsAsRead(studentId) {
+    const mongoose = (await import('mongoose')).default;
+
+    // Convert studentId to ObjectId if it's a string
+    let studentObjectId = studentId;
+    if (typeof studentId === 'string' && mongoose.Types.ObjectId.isValid(studentId)) {
+      studentObjectId = new mongoose.Types.ObjectId(studentId);
+    } else if (studentId && typeof studentId === 'object' && studentId._id) {
+      studentObjectId = studentId._id;
+    }
+
+    const result = await Notification.updateMany(
+      {
+        studentId: studentObjectId,
+        isRead: false,
+      },
+      {
+        $set: {
+          isRead: true,
+          updatedAt: new Date(),
+        }
+      }
+    );
+
+    return {
+      matchedCount: result.matchedCount ?? result.n ?? 0,
+      modifiedCount: result.modifiedCount ?? result.nModified ?? 0,
+    };
   }
 
   // ===========================================

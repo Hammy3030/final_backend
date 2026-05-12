@@ -47,4 +47,6 @@ TestAttemptSchema.virtual('id').get(function() {
   return this._id.toString();
 });
 
+TestAttemptSchema.index({ studentId: 1, testId: 1 });
+
 export const TestAttempt = mongoose.model('TestAttempt', TestAttemptSchema);

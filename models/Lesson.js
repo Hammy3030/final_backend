@@ -79,5 +79,6 @@ LessonSchema.virtual('id').get(function () {
 
 // Index for sorting lessons
 LessonSchema.index({ classroomId: 1, orderIndex: 1 });
+LessonSchema.index({ classroomId: 1, isDeleted: 1, orderIndex: 1 });
 
 export const Lesson = mongoose.model('Lesson', LessonSchema);

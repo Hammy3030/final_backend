@@ -80,8 +80,8 @@ export class ClassroomService {
       throw new Error('คุณไม่มีสิทธิ์ลบห้องเรียนนี้');
     }
 
-    const { Classroom } = await import('../models/Classroom.js');
-    await Classroom.findByIdAndDelete(classroomId);
+    // Use DatabaseService to perform hard & cascade delete
+    await DatabaseService.deleteClassroom(classroomId);
     return { success: true };
   }
 
@@ -89,13 +89,20 @@ export class ClassroomService {
     const createdStudents = [];
     const createdUserIds = [];
 
-    const existingStudentsCount = await Student.countDocuments();
+    // Count students CURRENTLY in this room
+    const existingStudentsCount = await Student.countDocuments({ classroomId });
+    const classroom = await Classroom.findById(classroomId);
+    let roomCode = String(classroomId).slice(-2).toLowerCase();
+    if (classroom) {
+      const digits = classroom.name.replace(/\D/g, '');
+      if (digits) roomCode = digits;
+    }
 
     try {
       for (let i = 0; i < studentsData.length; i++) {
         const studentData = studentsData[i];
         const studentCodeNumber = String(existingStudentsCount + i + 1).padStart(3, '0');
-        const studentCode = `STU${studentCodeNumber}`;
+        const studentCode = `stu${roomCode}-${studentCodeNumber}`;
         const qrCode = studentCode;
         const defaultPassword = 'default123';
         const hashedPassword = await AuthService.hashPassword(defaultPassword);
@@ -115,7 +122,9 @@ export class ClassroomService {
           classroom_id: classroomId,
           student_code: studentCode,
           qr_code: qrCode,
-          name: studentData.name
+          name: studentData.name,
+          first_name: studentData.firstName,
+          last_name: studentData.lastName
         });
 
         createdStudents.push({ ...student, qrCode });
@@ -162,7 +171,9 @@ export class ClassroomService {
           classroom_id: null,
           student_code: studentCode,
           qr_code: qrCode,
-          name: studentData.name
+          name: studentData.name,
+          first_name: studentData.firstName,
+          last_name: studentData.lastName
         });
 
         createdStudents.push({ ...student, qrCode });
@@ -273,6 +284,36 @@ export class ClassroomService {
 
     // 7. Finally delete student
     await Student.findByIdAndDelete(studentId);
+
+    // 8. Re-sequence remaining students in the classroom (ID Re-sequencing Logic)
+    const remainingStudents = await Student.find({ classroomId }).sort({ createdAt: 1 });
+    const classroom = await Classroom.findById(classroomId);
+    let roomCode = String(classroomId).slice(-2).toLowerCase();
+    if (classroom) {
+      const digits = classroom.name.replace(/\D/g, '');
+      if (digits) roomCode = digits;
+    }
+    
+    for (let i = 0; i < remainingStudents.length; i++) {
+      const st = remainingStudents[i];
+      const newSequenceNumber = String(i + 1).padStart(3, '0');
+      const newStudentCode = `stu${roomCode}-${newSequenceNumber}`;
+      
+      if (st.studentCode !== newStudentCode) {
+        st.studentCode = newStudentCode;
+        st.qrCode = newStudentCode;
+        await st.save();
+        
+        // Update the User email
+        if (st.userId) {
+          const user = await User.findById(st.userId);
+          if (user) {
+            user.email = `${newStudentCode}@bearthai.local`;
+            await user.save();
+          }
+        }
+      }
+    }
 
     return { success: true };
   }
@@ -491,4 +532,225 @@ export class ClassroomService {
       }
     };
   }
+
+  static async getClassroomStudents(classroomId, filters = {}) {
+    const mongoose = (await import('mongoose')).default;
+    const { 
+      search, 
+      gender, 
+      progress, 
+      testStatus, 
+      scoreLevel, 
+      gameStatus,
+      sort 
+    } = filters;
+
+    const classroomObjectId = new mongoose.Types.ObjectId(classroomId);
+
+    // Get total lessons count for progress calculation
+    const totalLessons = await Lesson.countDocuments({ 
+      classroomId: classroomObjectId, 
+      isDeleted: false, 
+      isActive: true 
+    });
+
+    const pipeline = [
+      { $match: { classroomId: classroomObjectId } },
+      // Lookup LessonProgress
+      {
+        $lookup: {
+          from: 'lesson_progress',
+          localField: '_id',
+          foreignField: 'studentId',
+          as: 'progress'
+        }
+      },
+      // Lookup TestAttempts
+      {
+        $lookup: {
+          from: 'test_attempts',
+          localField: '_id',
+          foreignField: 'studentId',
+          as: 'testAttempts'
+        }
+      },
+      // Lookup GameAttempts
+      {
+        $lookup: {
+          from: 'game_attempts',
+          localField: '_id',
+          foreignField: 'studentId',
+          as: 'gameAttempts'
+        }
+      },
+      // Add calculated fields
+      {
+        $addFields: {
+          completedLessonsCount: {
+            $size: {
+              $filter: {
+                input: '$progress',
+                as: 'p',
+                cond: { $eq: ['$$p.isCompleted', true] }
+              }
+            }
+          },
+          hasPreTest: {
+            $gt: [
+              {
+                $size: {
+                  $filter: {
+                    input: '$progress',
+                    as: 'p',
+                    cond: { $eq: ['$$p.hasPassedPreTest', true] }
+                  }
+                }
+              },
+              0
+            ]
+          },
+          hasPostTest: {
+            $gt: [
+              {
+                $size: {
+                  $filter: {
+                    input: '$progress',
+                    as: 'p',
+                    cond: { $eq: ['$$p.hasPassedPostTest', true] }
+                  }
+                }
+              },
+              0
+            ]
+          },
+          avgTestScore: {
+            $cond: [
+              { $gt: [{ $size: '$testAttempts' }, 0] },
+              { $avg: '$testAttempts.score' },
+              0
+            ]
+          },
+          avgGameScore: {
+            $cond: [
+              { $gt: [{ $size: '$gameAttempts' }, 0] },
+              { $avg: '$gameAttempts.score' },
+              0
+            ]
+          },
+          playedGame: { $gt: [{ $size: '$gameAttempts' }, 0] },
+          completionRate: {
+            $cond: [
+              { $gt: [totalLessons, 0] },
+              { $multiply: [{ $divide: [{ $size: { $filter: { input: '$progress', as: 'p', cond: { $eq: ['$$p.isCompleted', true] } } } }, totalLessons] }, 100] },
+              0
+            ]
+          }
+        }
+      }
+    ];
+
+    // Apply Filters
+    const matchFilters = {};
+
+    if (search) {
+      matchFilters.$or = [
+        { name: { $regex: search, $options: 'i' } },
+        { studentCode: { $regex: search, $options: 'i' } },
+        { qrCode: { $regex: search, $options: 'i' } }
+      ];
+    }
+
+    if (gender && gender !== 'all') {
+      if (gender === 'male') {
+        matchFilters.name = { $regex: /^(เด็กชาย|ด\.ช\.)/, $options: 'i' };
+      } else if (gender === 'female') {
+        matchFilters.name = { $regex: /^(เด็กหญิง|ด\.ญ\.)/, $options: 'i' };
+      }
+    }
+
+    if (progress && progress !== 'all') {
+      if (progress === 'no-progress') {
+        matchFilters.completedLessonsCount = 0;
+      } else if (progress === 'in-progress') {
+        matchFilters.completedLessonsCount = { $gt: 0 };
+        matchFilters.completionRate = { $lt: 100 };
+      } else if (progress === 'completed') {
+        matchFilters.completionRate = 100;
+      }
+    }
+
+    if (testStatus && testStatus !== 'all') {
+      if (testStatus === 'pre-done') {
+        matchFilters.hasPreTest = true;
+      } else if (testStatus === 'post-done') {
+        matchFilters.hasPostTest = true;
+      } else if (testStatus === 'none') {
+        matchFilters.hasPreTest = false;
+        matchFilters.hasPostTest = false;
+      }
+    }
+
+    if (scoreLevel && scoreLevel !== 'all') {
+      if (scoreLevel === 'excellent') {
+        matchFilters.avgTestScore = { $gte: 80 };
+      } else if (scoreLevel === 'passed') {
+        matchFilters.avgTestScore = { $gte: 50, $lt: 80 };
+      } else if (scoreLevel === 'care') {
+        matchFilters.avgTestScore = { $lt: 50 };
+      }
+    }
+
+    if (gameStatus && gameStatus !== 'all') {
+      if (gameStatus === 'played') {
+        matchFilters.playedGame = true;
+      } else if (gameStatus === 'not-played') {
+        matchFilters.playedGame = false;
+      }
+    }
+
+    if (Object.keys(matchFilters).length > 0) {
+      pipeline.push({ $match: matchFilters });
+    }
+
+    // Apply Sorting
+    let sortStage = { name: 1 };
+    if (sort) {
+      switch (sort) {
+        case 'progress-desc': sortStage = { completionRate: -1 }; break;
+        case 'progress-asc': sortStage = { completionRate: 1 }; break;
+        case 'test-desc': sortStage = { avgTestScore: -1 }; break;
+        case 'game-desc': sortStage = { avgGameScore: -1 }; break;
+        case 'name-desc': sortStage = { name: -1 }; break;
+        case 'name-asc': sortStage = { name: 1 }; break;
+        default: sortStage = { name: 1 };
+      }
+    }
+    pipeline.push({ $sort: sortStage });
+
+    const students = await Student.aggregate(pipeline);
+
+    // Prepare response data with progressSummary structure expected by frontend
+    const formattedStudents = students.map(s => ({
+      ...s,
+      id: s._id.toString(),
+      progressSummary: {
+        completedLessons: s.completedLessonsCount,
+        totalLessons: totalLessons,
+        completionRate: Math.round(s.completionRate || 0),
+        averageTestScore: Math.round(s.avgTestScore || 0),
+        totalTestAttempts: s.testAttempts.length,
+        hasPreTest: s.hasPreTest,
+        hasPostTest: s.hasPostTest,
+        playedGame: s.playedGame,
+        avgGameScore: Math.round(s.avgGameScore || 0)
+      }
+    }));
+
+    return {
+      students: formattedStudents,
+      totalCount: await Student.countDocuments({ classroomId: classroomObjectId }),
+      filteredCount: students.length
+    };
+  }
 }
+

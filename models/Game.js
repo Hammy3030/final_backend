@@ -55,4 +55,7 @@ GameSchema.virtual('id').get(function () {
   return this._id.toString();
 });
 
+GameSchema.index({ lessonId: 1, isDeleted: 1 });
+GameSchema.index({ classroomId: 1, isDeleted: 1 });
+
 export const Game = mongoose.model('Game', GameSchema);

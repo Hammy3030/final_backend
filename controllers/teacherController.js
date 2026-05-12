@@ -2,6 +2,13 @@ import { ClassroomService } from '../services/classroomService.js';
 import { LessonService } from '../services/lessonService.js';
 import QRCode from 'qrcode';
 import { DatabaseService } from '../services/databaseService.js';
+import { GoogleGenAI } from '@google/genai';
+import { User } from '../models/User.js';
+import { Student } from '../models/Student.js';
+import { Lesson } from '../models/Lesson.js';
+import { Teacher } from '../models/Teacher.js';
+import { Test } from '../models/Test.js';
+import { Game } from '../models/Game.js';
 
 export class TeacherController {
   static async getClassrooms(req, res) {
@@ -29,6 +36,55 @@ export class TeacherController {
     }
   }
 
+  static async updateProfile(req, res) {
+    try {
+      const { name, email, school } = req.body;
+      const userId = req.user.id;
+
+      const user = await User.findById(userId);
+      if (!user) {
+        return res.status(404).json({
+          success: false,
+          message: 'ไม่พบข้อมูลผู้ใช้งาน'
+        });
+      }
+
+      // Update basic info
+      if (name) user.name = name;
+      if (email) user.email = email;
+      if (school) user.school = school;
+
+      await user.save();
+
+      // Sync with Teacher model
+      await Teacher.findOneAndUpdate(
+        { userId: userId },
+        { name, school },
+        { new: true }
+      );
+
+      res.json({
+        success: true,
+        message: 'อัปเดตข้อมูลส่วนตัวสำเร็จ',
+        data: {
+          user: {
+            id: user._id,
+            name: user.name,
+            email: user.email,
+            role: user.role,
+            school: user.school
+          }
+        }
+      });
+    } catch (error) {
+      console.error('Update profile error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'เกิดข้อผิดพลาดในการอัปเดตข้อมูลส่วนตัว'
+      });
+    }
+  }
+
   static async createClassroom(req, res) {
     try {
       // Check if teacher data exists
@@ -46,9 +102,18 @@ export class TeacherController {
         description: description || ''
       });
 
+      // [Requirement 1] Auto-generate Lessons, Games, Tests immediately
+      try {
+        console.log(`[Auto-Gen] Generating content for new classroom: ${classroom._id}`);
+        await LessonService.generateDefaultLessons(classroom._id, req.user.teacher.id);
+      } catch (genError) {
+        console.error('Auto-generate content failed:', genError);
+        // We don't fail the whole request, but log it
+      }
+
       res.status(201).json({
         success: true,
-        message: 'สร้างห้องเรียนสำเร็จ',
+        message: 'สร้างห้องเรียนและเนื้อหาอัตโนมัติสำเร็จ',
         data: { classroom }
       });
     } catch (error) {
@@ -81,6 +146,118 @@ export class TeacherController {
       res.status(500).json({
         success: false,
         message: 'เกิดข้อผิดพลาดในการดึงข้อมูลห้องเรียน'
+      });
+    }
+  }
+
+  static async getClassroomStudents(req, res) {
+    try {
+      const { classroomId } = req.params;
+      const { 
+        search, 
+        gender, 
+        progress, 
+        testStatus, 
+        scoreLevel, 
+        gameStatus,
+        sort 
+      } = req.query;
+
+      const result = await ClassroomService.getClassroomStudents(classroomId, {
+        search,
+        gender,
+        progress,
+        testStatus,
+        scoreLevel,
+        gameStatus,
+        sort
+      });
+
+      res.json({
+        success: true,
+        data: result
+      });
+    } catch (error) {
+      console.error('Get classroom students error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'เกิดข้อผิดพลาดในการดึงรายชื่อนักเรียน'
+      });
+    }
+  }
+
+  static async getTests(req, res) {
+    try {
+      const { classroomId } = req.params;
+      const { search, type, status, sort } = req.query;
+      
+      const query = { classroomId, isDeleted: false };
+      
+      if (search) {
+        query.title = { $regex: search, $options: 'i' };
+      }
+      
+      if (type && type !== 'all') {
+        query.type = type.toUpperCase();
+      }
+      
+      if (status && status !== 'all') {
+        query.isActive = status === 'active';
+      }
+      
+      let sortOptions = { createdAt: -1 };
+      if (sort === 'oldest') sortOptions = { createdAt: 1 };
+      if (sort === 'name') sortOptions = { title: 1 };
+      
+      const tests = await Test.find(query).sort(sortOptions);
+      
+      res.json({
+        success: true,
+        data: { tests }
+      });
+    } catch (error) {
+      console.error('Get tests error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'เกิดข้อผิดพลาดในการดึงข้อมูลแบบทดสอบ'
+      });
+    }
+  }
+
+  static async getGames(req, res) {
+    try {
+      const { classroomId } = req.params;
+      const { search, type, status, sort } = req.query;
+      
+      const query = { classroomId, isDeleted: false };
+      
+      if (search) {
+        query.title = { $regex: search, $options: 'i' };
+      }
+      
+      if (type && type !== 'all') {
+        query.type = type.toUpperCase();
+      }
+      
+      if (status && status !== 'all') {
+        query.isActive = status === 'active';
+      }
+      
+      let sortOptions = { createdAt: -1 };
+      if (sort === 'oldest') sortOptions = { createdAt: 1 };
+      if (sort === 'name') sortOptions = { title: 1 };
+      
+      const games = await Game.find(query).sort(sortOptions);
+      
+      res.json({
+        success: true,
+        data: { games }
+      });
+    } catch (error) {
+      console.error('Get games error:', error);
+      res.status(500).json({
+        success: false,
+        message: 'เกิดข้อผิดพลาดในการดึงข้อมูลเกม'
       });
     }
   }
@@ -133,8 +310,86 @@ export class TeacherController {
   static async addStudents(req, res) {
     try {
       const { students } = req.body;
+      const classroomId = req.classroomId;
 
-      const createdStudents = await ClassroomService.addStudentsToClassroom(req.classroomId, students);
+      // [DEEP DEBUG] ตรวจสอบข้อมูลดิบที่ส่งเข้า addStudents
+      console.log("-----------------------------------------");
+      console.log("🚨 [API CALL] addStudents (Classroom Context) called");
+      console.log("Original Request Body:", JSON.stringify(req.body, null, 2));
+
+      const stripPrefix = (fullName) => {
+        if (!fullName) return '';
+        let name = fullName.trim();
+        name = name.replace(/^(ด\.?ช\.?|ด\.?ญ\.?|เด็กชาย|เด็กหญิง)\s*/i, '');
+        return name.trim();
+      };
+
+      const seenNamesInPayload = new Set();
+      for (const student of students) {
+        console.log("Processing student string (addStudents):", student.name);
+
+        // 1. Validate Prefix Presence
+        const prefixRegex = /^(ด\.?ช\.?|ด\.?ญ\.?|เด็กชาย|เด็กหญิง)\s?/i;
+        if (!prefixRegex.test(student.name)) {
+          return res.status(400).json({
+            success: false,
+            message: `กรุณาเลือกตัวย่อคำนำหน้าชื่อ (ด.ช., ด.ญ., เด็กชาย, เด็กหญิง)`
+          });
+        }
+
+        // 2. Data Parsing: Split Firstname and Lastname
+        const fullNameWithoutPrefix = stripPrefix(student.name);
+        const nameParts = fullNameWithoutPrefix.split(/\s+/).filter(p => p.length > 0);
+
+        if (nameParts.length < 2) {
+          return res.status(400).json({
+            success: false,
+            message: `กรุณากรอกทั้งชื่อและนามสกุลให้ครบถ้วน`
+          });
+        }
+
+        const firstName = nameParts[0].trim();
+        const lastName = nameParts.slice(1).join(' ').trim();
+        const normalizedKey = (firstName + lastName).replace(/[\s\.]/g, '').toLowerCase();
+
+        // [LOG] ผลการแยกคำ
+        console.log("✅ Parsed First Name:", `"${firstName}"`);
+        console.log("✅ Parsed Last Name:", `"${lastName}"`);
+
+        // 3. Payload Check
+        if (seenNamesInPayload.has(normalizedKey)) {
+          return res.status(400).json({
+            success: false,
+            message: `ชื่อและนามสกุลนี้มีอยู่แล้ว (ซ้ำซ้อนในรายการที่ส่งมา)`
+          });
+        }
+        seenNamesInPayload.add(normalizedKey);
+
+        // 4. DATABASE VALIDATION using Flexible Regex (THE FINAL GATE)
+        console.log(`🔍 Searching DB for: ${firstName} ${lastName}...`);
+        const existingStudent = await Student.findOne({
+          firstName: { $regex: new RegExp('^' + firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
+          lastName: { $regex: new RegExp('^' + lastName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') }
+        });
+
+        if (existingStudent) {
+          console.log("🚨 [BACKEND] FOUND DUPLICATE IN DB!", {
+            name: existingStudent.name,
+            id: existingStudent._id
+          });
+          return res.status(400).json({
+            success: false,
+            message: 'ชื่อและนามสกุลนี้มีอยู่ในระบบแล้ว ไม่สามารถเพิ่มซ้ำได้'
+          });
+        }
+
+        // Attach split names for ClassroomService
+        student.firstName = firstName;
+        student.lastName = lastName;
+      }
+      console.log("-----------------------------------------");
+
+      const createdStudents = await ClassroomService.addStudentsToClassroom(classroomId, students);
 
       // Generate QR codes for all students
       const studentsWithQR = await Promise.all(
@@ -172,7 +427,87 @@ export class TeacherController {
   static async createStudents(req, res) {
     try {
       const { students, classroomId } = req.body;
-      const teacherId = req.user.teacher.id;
+      // [DEEP DEBUG] ตรวจสอบข้อมูลดิบที่รับมาจาก Frontend
+      console.log("-----------------------------------------");
+      console.log("🚨 [API CALL] createStudents called");
+      console.log("Original Request Body:", JSON.stringify(req.body, null, 2));
+
+      const stripPrefix = (fullName) => {
+        if (!fullName) return '';
+        let name = fullName.trim();
+        // Regex ตัดคำนำหน้าออกให้เหลือแต่ชื่อ-นามสกุลจริงๆ
+        name = name.replace(/^(ด\.?ช\.?|ด\.?ญ\.?|เด็กชาย|เด็กหญิง)\s*/i, '');
+        return name.trim();
+      };
+
+      const seenNamesInPayload = new Set();
+      for (const student of students) {
+        console.log("Processing student string:", student.name);
+
+        // 1. Validate Prefix Presence
+        const prefixRegex = /^(ด\.?ช\.?|ด\.?ญ\.?|เด็กชาย|เด็กหญิง)\s?/i;
+        if (!prefixRegex.test(student.name)) {
+          return res.status(400).json({
+            success: false,
+            message: `กรุณาเลือกตัวย่อคำนำหน้าชื่อ (ด.ช., ด.ญ., เด็กชาย, เด็กหญิง)`
+          });
+        }
+
+        // 2. Data Parsing: Split Firstname and Lastname
+        const fullNameWithoutPrefix = stripPrefix(student.name);
+        const nameParts = fullNameWithoutPrefix.split(/\s+/).filter(p => p.length > 0);
+
+        if (nameParts.length < 2) {
+          return res.status(400).json({
+            success: false,
+            message: `กรุณากรอกทั้งชื่อและนามสกุลให้ครบถ้วน`
+          });
+        }
+
+        const firstName = nameParts[0].trim();
+        const lastName = nameParts.slice(1).join(' ').trim();
+        const normalizedKey = (firstName + lastName).replace(/[\s\.]/g, '').toLowerCase();
+
+        // [LOG] ผลการแยกคำ
+        console.log("✅ Parsed First Name:", `"${firstName}"`);
+        console.log("✅ Parsed Last Name:", `"${lastName}"`);
+
+        // 3. Payload Check (ในชุดข้อมูลเดียวกัน)
+        if (seenNamesInPayload.has(normalizedKey)) {
+          return res.status(400).json({
+            success: false,
+            message: `ชื่อและนามสกุลนี้มีอยู่แล้ว (ซ้ำซ้อนในรายการที่ส่งมา)`
+          });
+        }
+        seenNamesInPayload.add(normalizedKey);
+
+        // 4. DATABASE VALIDATION using Flexible Regex (ROOT FIX)
+        console.log(`🔍 Searching DB for: ${firstName} ${lastName}...`);
+        const existingStudent = await Student.findOne({
+          firstName: { $regex: new RegExp('^' + firstName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') },
+          lastName: { $regex: new RegExp('^' + lastName.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + '$', 'i') }
+        });
+
+        if (existingStudent) {
+          console.log("🚨 [FOUND DUPLICATE!]", {
+            id: existingStudent._id,
+            name: existingStudent.name,
+            firstNameInDB: existingStudent.firstName,
+            lastNameInDB: existingStudent.lastName
+          });
+          return res.status(400).json({
+            success: false,
+            message: 'ชื่อและนามสกุลนี้มีอยู่ในระบบแล้ว ไม่สามารถเพิ่มซ้ำได้'
+          });
+        }
+
+        console.log("✨ No duplicate found. Proceeding...");
+
+        // แนบค่าที่แยกแล้วส่งต่อให้ Service
+        student.firstName = firstName;
+        student.lastName = lastName;
+      }
+      console.log("-----------------------------------------");
 
       let createdStudents;
 
@@ -256,6 +591,128 @@ export class TeacherController {
       res.status(500).json({
         success: false,
         message: 'เกิดข้อผิดพลาดในการเพิ่มนักเรียนเข้าห้องเรียน'
+      });
+    }
+  }
+
+  static async importStudentsFromPdf(req, res) {
+    try {
+      if (!req.file) {
+        return res.status(400).json({ success: false, message: 'กรุณาอัปโหลดไฟล์ PDF' });
+      }
+
+      const classroomId = req.params.classroomId;
+
+      // 1. เรียกใช้ Gemini API ให้แกะไฟล์ PDF
+      const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY.trim() });
+      const filePart = {
+        inlineData: {
+          data: req.file.buffer.toString('base64'),
+          mimeType: req.file.mimetype,
+        }
+      };
+
+      const prompt = `
+ดึงรายชื่อนักเรียนจากไฟล์เอกสารที่แนบมา คืนค่าผลลัพธ์เป็น JSON Array เท่านั้น ในรูปแบบนี้:
+[
+  { "title": "เด็กชาย", "firstName": "สมชาย", "lastName": "ใจดี" },
+  { "title": "เด็กหญิง", "firstName": "สมหญิง", "lastName": "รักเรียน" }
+]
+* คำนำหน้า (title) ต้องเป็น: 'ด.ช.', 'ด.ญ.', 'เด็กชาย', หรือ 'เด็กหญิง' เท่านั้น
+ถ้าไม่มีนามสกุล ให้ใส่ lastName เป็น string ว่าง ""
+ตอบกลับมาเฉพาะ JSON เท่านั้น ห้ามมีข้อความอื่นหรือ Markdown backticks
+`;
+
+      const response = await ai.models.generateContent({
+        model: process.env.GEMINI_MODEL || 'gemini-2.5-flash',
+        contents: [filePart, prompt]
+      });
+
+      const responseText = response.text;
+      const jsonStr = responseText.replace(/\`\`\`json/g, '').replace(/\`\`\`/g, '').trim();
+
+      let extractedData;
+      try {
+        extractedData = JSON.parse(jsonStr);
+      } catch (e) {
+        console.error("JSON Parse Error:", jsonStr);
+        return res.status(500).json({ success: false, message: 'AI สกัดข้อมูลผิดรูปแบบ กรุณาลองใหม่อีกครั้ง' });
+      }
+
+      // 2. Validate Data (เช็คคำนำหน้า และ เช็คชื่อซ้ำ)
+      const validPrefixes = ['ด.ช.', 'ด.ญ.', 'เด็กชาย', 'เด็กหญิง'];
+      const previewData = [];
+      const seenNames = new Set();
+
+      const teacherClassrooms = await ClassroomService.getClassroomsByTeacher(req.user.teacher.id);
+      const classroomIds = teacherClassrooms.map(c => c._id);
+
+      const stripPrefix = (fullName) => {
+        if (!fullName) return '';
+        let name = fullName.trim();
+        name = name.replace(/^(ด\.?ช\.?|ด\.?ญ\.?|เด็กชาย|เด็กหญิง)\s*/i, '');
+        return name.trim();
+      };
+
+      for (const student of extractedData) {
+        let isValid = true;
+        let errorMessage = null;
+        const fullName = `${student.title || ''}${student.firstName || ''} ${student.lastName || ''}`.trim();
+
+        if (!student.firstName || !student.lastName) {
+          isValid = false;
+          errorMessage = 'กรุณากรอกชื่อและนามสกุล';
+        } else {
+          // Robust check logic (ROOT FIX)
+          const firstName = student.firstName.trim();
+          const lastName = student.lastName.trim();
+          const normalizedKey = (firstName + lastName).replace(/[\s\.]/g, '').toLowerCase();
+
+          if (seenNames.has(normalizedKey)) {
+            isValid = false;
+            errorMessage = 'ชื่อและนามสกุลนี้มีอยู่แล้ว';
+          } else {
+            // Direct DB Check using the new dedicated fields
+            const existing = await Student.findOne({
+              firstName: firstName,
+              lastName: lastName
+            });
+
+            if (existing) {
+              console.log("🚨 เจอชื่อซ้ำในฐานข้อมูล (PDF Import)!", { firstName, lastName });
+              isValid = false;
+              errorMessage = 'ชื่อและนามสกุลนี้มีอยู่แล้ว';
+            }
+          }
+          if (isValid) {
+            seenNames.add(normalizedKey);
+            // Ensure these fields are passed along
+            student.firstName = firstName;
+            student.lastName = lastName;
+          }
+        }
+
+        previewData.push({
+          name: fullName,
+          isValid,
+          error: errorMessage
+        });
+      }
+
+      // Return preview data
+      res.json({
+        success: true,
+        message: 'วิเคราะห์ไฟล์ PDF สำเร็จ',
+        data: {
+          preview: previewData
+        }
+      });
+
+    } catch (error) {
+      console.error('Import students from PDF error:', error);
+      res.status(500).json({
+        success: false,
+        message: error.message || 'เกิดข้อผิดพลาดในการนำเข้านักเรียน'
       });
     }
   }
@@ -376,6 +833,11 @@ export class TeacherController {
             student_id: notification.studentId,
             title: notification.title,
             message: notification.message,
+            actor_type: 'TEACHER',
+            actor_id: req.user.teacher.id,
+            event_type: 'TEACHER_ANNOUNCEMENT',
+            classroom_id: req.classroomId,
+            announcement_id: announcement.id,
             type: notification.type
           });
         }
@@ -414,9 +876,64 @@ export class TeacherController {
 
   static async createLesson(req, res) {
     try {
+      const { title, classroomId } = req.body;
+      const targetClassroomId = classroomId || req.classroomId;
+
+      // [Requirement 1] Smart Duplicate Validation: Check for duplicate chapter number or title
+      const extractLessonNumber = (str) => {
+        const match = str.match(/บทที่\s*(\d+)/);
+        return match ? parseInt(match[1], 10) : null;
+      };
+
+      const newLessonNumber = extractLessonNumber(title);
+      const existingLessons = await Lesson.find({ 
+        classroomId: targetClassroomId,
+        isDeleted: false
+      });
+
+      // Check duplicate number if input has "บทที่ X"
+      if (newLessonNumber !== null) {
+        const isDuplicateNumber = existingLessons.some(l => extractLessonNumber(l.title) === newLessonNumber);
+        if (isDuplicateNumber) {
+          return res.status(400).json({
+            success: false,
+            message: 'เลขบทนี้มีอยู่แล้วในระบบ กรุณาใช้เลขอื่น'
+          });
+        }
+      }
+
+      // Check duplicate exact title or orderIndex
+      const query = {
+        classroomId: targetClassroomId,
+        isDeleted: false,
+        $or: [{ title: title.trim() }]
+      };
+      
+      if (req.body.orderIndex) {
+        query.$or.push({ orderIndex: req.body.orderIndex });
+      }
+
+      const existingLesson = await Lesson.findOne(query);
+
+      if (existingLesson) {
+        return res.status(400).json({
+          success: false,
+          message: 'เลขบทหรือชื่อบทเรียนนี้มีอยู่แล้ว กรุณาใช้ชื่ออื่น'
+        });
+      }
+
+      // [Requirement 2] Auto-calculate orderIndex (Max + 1)
+      let finalOrderIndex = req.body.orderIndex;
+      if (!finalOrderIndex) {
+        const lastLesson = await Lesson.findOne({ classroomId: targetClassroomId })
+          .sort({ orderIndex: -1 });
+        finalOrderIndex = lastLesson ? lastLesson.orderIndex + 1 : 1;
+      }
+
       const lessonData = {
         ...req.body,
-        classroomId: req.classroomId,
+        orderIndex: finalOrderIndex,
+        classroomId: targetClassroomId,
         teacherId: req.user.teacher.id
       };
 
@@ -424,7 +941,7 @@ export class TeacherController {
 
       res.status(201).json({
         success: true,
-        message: 'สร้างบทเรียนสำเร็จ',
+        message: `สร้างบทเรียนลำดับที่ ${finalOrderIndex} สำเร็จ`,
         data: { lesson }
       });
     } catch (error) {
@@ -833,6 +1350,7 @@ export class TeacherController {
 
   static async addQuestion(req, res) {
     try {
+      console.log('addQuestion payload received:', req.body);
       const { testId } = req.params;
       const question = await LessonService.createQuestion(testId, req.user.teacher.id, req.body);
 
@@ -842,7 +1360,7 @@ export class TeacherController {
         data: { question }
       });
     } catch (error) {
-      console.error('Add question error:', error);
+      console.error('Validation / Add question error:', error);
       res.status(500).json({
         success: false,
         message: error.message || 'เกิดข้อผิดพลาดในการเพิ่มคำถาม'

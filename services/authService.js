@@ -2,7 +2,7 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { JWT_CONFIG } from '../config/jwt.js';
 import { DatabaseService } from './databaseService.js';
-import { createTransporter, EMAIL_CONFIG } from '../config/email.js';
+import { createTransporter, EMAIL_CONFIG, buildVerifyEmailUrl } from '../config/email.js';
 
 export class AuthService {
   static async hashPassword(password) {
@@ -112,22 +112,26 @@ export class AuthService {
     try {
       // If email is not enabled, just log it
       if (!EMAIL_CONFIG.enabled) {
+        const verifyUrl = buildVerifyEmailUrl(verificationToken);
         console.log(`📧 Email disabled - User registered: ${email} (${role})`);
-        console.log(`   Verification link: ${EMAIL_CONFIG.frontendUrl}/verify-email?token=${verificationToken}`);
+        console.log(`   Verification link (เปิดในเบราว์เซอร์ — ต้องเป็น URL แอป frontend เช่น :5173 ไม่ใช่พอร์ต API):`);
+        console.log(`   ${verifyUrl}`);
         return;
       }
 
       // Create transporter
       const transporter = createTransporter();
       if (!transporter) {
+        const verifyUrl = buildVerifyEmailUrl(verificationToken);
         console.warn(`⚠️ Email transporter not available - skipping verification email to ${email}`);
-        console.log(`   Verification link: ${EMAIL_CONFIG.frontendUrl}/verify-email?token=${verificationToken}`);
+        console.log(`   Verification link:`);
+        console.log(`   ${verifyUrl}`);
         return;
       }
 
       // Define email content
       const roleDisplayName = role === 'TEACHER' ? 'คุณครู' : 'นักเรียน';
-      const verifyUrl = `${EMAIL_CONFIG.frontendUrl}/verify-email?token=${verificationToken}`;
+      const verifyUrl = buildVerifyEmailUrl(verificationToken);
       const subject = `ยืนยันอีเมลของคุณ - ${EMAIL_CONFIG.appName}`;
       const htmlContent = `
         <!DOCTYPE html>

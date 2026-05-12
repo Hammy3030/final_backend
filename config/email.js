@@ -32,4 +32,9 @@ export const createTransporter = () => {
   });
 };
 
+// --- เพิ่มฟังก์ชันที่หายไปด้านล่างนี้ ---
+export const buildVerifyEmailUrl = (token) => {
+  return `${EMAIL_CONFIG.frontendUrl}/verify-email?token=${token}`;
+};
+
 export default EMAIL_CONFIG;

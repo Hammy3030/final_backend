@@ -72,20 +72,21 @@ export class AuthController {
 
   static async login(req, res) {
     try {
-      const { email, password } = req.body;
+      let { email, password } = req.body;
+      if (email) email = email.trim();
 
       // Support login with studentCode for students (no password required)
       let loginEmail = email;
       let loginPassword = password;
       let isStudentCodeLogin = false;
 
-      // Check if input is a studentCode (e.g., STU001, STU002)
-      if (email && !email.includes('@') && /^STU\d{3}$/i.test(email)) {
+      // Check if input is a studentCode (e.g., stu01-001 or STU001)
+      if (email && !email.includes('@') && /^(stu|STU)[^@\s]+$/i.test(email)) {
         isStudentCodeLogin = true;
         // Find student by studentCode
         const { Student } = await import('../models/Student.js');
         const student = await Student.findOne({ 
-          studentCode: email.toUpperCase() 
+          studentCode: { $regex: new RegExp(`^${email}$`, 'i') } 
         }).populate('userId');
         
         if (!student || !student.userId) {

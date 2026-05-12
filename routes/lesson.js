@@ -146,7 +146,7 @@ router.post('/:lessonId/tests', teacherOnly, validate(testSchema), async (req, r
 router.post('/tests/:testId/questions', teacherOnly, validate(questionSchema), async (req, res) => {
   try {
     const { testId } = req.params;
-    const { question, options, correctAnswer, explanation, imageUrl, audioUrl } = req.body;
+    const { question, options, correctAnswer, explanation, imageUrl, audioUrl, imageOptions, isMultipleChoice } = req.body;
 
     const questionRecord = await LessonService.createQuestion(testId, req.user.teacher.id, {
       question,
@@ -154,7 +154,9 @@ router.post('/tests/:testId/questions', teacherOnly, validate(questionSchema), a
       correctAnswer,
       explanation,
       imageUrl,
-      audioUrl
+      audioUrl,
+      imageOptions,
+      isMultipleChoice
     });
 
     res.status(201).json({

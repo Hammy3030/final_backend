@@ -50,4 +50,6 @@ GameAttemptSchema.virtual('id').get(function() {
   return this._id.toString();
 });
 
+GameAttemptSchema.index({ studentId: 1, gameId: 1 });
+
 export const GameAttempt = mongoose.model('GameAttempt', GameAttemptSchema);
