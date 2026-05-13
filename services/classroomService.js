@@ -568,6 +568,7 @@ export class ClassroomService {
     // Calculate statistics
     const completedLessons = validLessonProgress.filter(lp => lp.isCompleted).length;
     const totalLessons = lessons.length;
+
     const averageScore = validTestAttempts.length > 0
       ? Math.round(validTestAttempts.reduce((sum, ta) => sum + (ta.score || 0), 0) / validTestAttempts.length)
       : 0;
@@ -594,18 +595,8 @@ export class ClassroomService {
     };
   }
 
-  static async getClassroomStudents(classroomId, filters = {}) {
+  static async getClassroomStudents(classroomId, { search, gender, progress, testStatus, scoreLevel, gameStatus, activityStatus, sort } = {}) {
     const mongoose = (await import('mongoose')).default;
-    const { 
-      search, 
-      gender, 
-      progress, 
-      testStatus, 
-      scoreLevel, 
-      gameStatus,
-      sort 
-    } = filters;
-
     const classroomObjectId = new mongoose.Types.ObjectId(classroomId);
 
     // Get total lessons count for progress calculation
@@ -741,13 +732,28 @@ export class ClassroomService {
     }
 
     if (progress && progress !== 'all') {
-      if (progress === 'no-progress') {
-        matchFilters.completedLessonsCount = 0;
-      } else if (progress === 'in-progress') {
-        matchFilters.completedLessonsCount = { $gt: 0 };
-        matchFilters.completionRate = { $lt: 100 };
-      } else if (progress === 'completed') {
+      if (progress === 'completed') {
         matchFilters.completionRate = 100;
+      } else if (progress === 'learning') {
+        matchFilters.completionRate = { $gt: 0, $lt: 100 };
+      } else if (progress === 'not-started') {
+        matchFilters.completionRate = 0;
+      }
+    }
+
+    if (activityStatus && activityStatus !== 'all') {
+      const now = new Date();
+      if (activityStatus === 'active') {
+        const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+        matchFilters.updatedAt = { $gte: sevenDaysAgo };
+      } else if (activityStatus === 'inactive') {
+        const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
+        matchFilters.updatedAt = { $lt: sevenDaysAgo };
+      } else if (activityStatus === 'never') {
+        matchFilters.$or = [
+          { updatedAt: { $exists: false } },
+          { updatedAt: null }
+        ];
       }
     }
 
