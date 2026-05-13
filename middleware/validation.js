@@ -270,18 +270,20 @@ export const teacherQuestionBodySchema = Joi.object({
 /** นักเรียน: ส่งแบบทดสอบ */
 export const studentTestSubmitSchema = Joi.object({
   answers: Joi.object().required(),
+  earnedStars: Joi.number().optional(),
   timeSpent: Joi.alternatives()
     .try(Joi.number().integer().min(0), Joi.valid(null))
     .optional()
-});
+}).unknown(true);
 
 /** นักเรียน: ส่งผลเกม */
 export const studentGameSubmitSchema = Joi.object({
   score: Joi.number().required(),
   level: Joi.number().integer().min(1).optional(),
   timeSpent: Joi.number().integer().min(0).optional(),
+  earnedMedals: Joi.number().optional(),
   data: Joi.any().optional()
-});
+}).unknown(true);
 
 /** นักเรียน: กิจกรรมในบทเรียน */
 export const studentActivitySubmitSchema = Joi.object({
