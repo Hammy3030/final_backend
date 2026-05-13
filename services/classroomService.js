@@ -89,8 +89,16 @@ export class ClassroomService {
     const createdStudents = [];
     const createdUserIds = [];
 
-    // Count students CURRENTLY in this room
-    const existingStudentsCount = await Student.countDocuments({ classroomId });
+    // Get the highest sequence number currently in this room to avoid duplicates if students were deleted
+    const lastStudent = await Student.findOne({ classroomId }).sort({ studentCode: -1 });
+    let lastSeq = 0;
+    if (lastStudent && lastStudent.studentCode) {
+      const match = lastStudent.studentCode.match(/-(\d+)$/);
+      if (match) {
+        lastSeq = parseInt(match[1], 10);
+      }
+    }
+
     const classroom = await Classroom.findById(classroomId);
     let roomCode = String(classroomId).slice(-2).toLowerCase();
     if (classroom) {
@@ -110,20 +118,48 @@ export class ClassroomService {
         });
         
         if (existingStudent) {
-          console.warn(`Student "${nameTrimmed}" already exists in classroom ${classroomId}, skipping.`);
-          continue;
+          throw new Error(`นักเรียนชื่อ "${nameTrimmed}" มีอยู่ในห้องเรียนนี้แล้ว`);
         }
 
-        const studentCodeNumber = String(existingStudentsCount + createdStudents.length + 1).padStart(3, '0');
+        // Use the next sequence number based on the highest found
+        const studentCodeNumber = String(lastSeq + createdStudents.length + 1).padStart(3, '0');
         const studentCode = `stu${roomCode}-${studentCodeNumber}`;
         const email = `${studentCode}@bearthai.local`;
         
         // 2. Double check if USER with this email already exists (Safety check for E11000)
         const existingUser = await User.findOne({ email });
         if (existingUser) {
-          // If user exists but is not linked to any student, we might be able to reuse or delete it.
-          // For now, let's just skip to be safe and avoid crash.
-          console.error(`User with email ${email} already exists but student does not, data inconsistency detected.`);
+          // If user exists, we must increment and try again until we find a free one
+          // This handles cases where student records were partially deleted
+          let jump = 1;
+          let newEmail = email;
+          let newCode = studentCode;
+          while (await User.findOne({ email: newEmail })) {
+            const nextNum = String(lastSeq + createdStudents.length + 1 + jump).padStart(3, '0');
+            newCode = `stu${roomCode}-${nextNum}`;
+            newEmail = `${newCode}@bearthai.local`;
+            jump++;
+          }
+          // Use the free one found
+          const finalUser = await DatabaseService.createUser({
+            email: newEmail,
+            password: await AuthService.hashPassword('default123'),
+            role: 'STUDENT',
+            name: studentData.name,
+            school: studentData.school,
+            isEmailVerified: true
+          });
+          createdUserIds.push(finalUser._id || finalUser.id);
+          const student = await DatabaseService.createStudent({
+            user_id: finalUser._id || finalUser.id,
+            classroom_id: classroomId,
+            student_code: newCode,
+            qr_code: newCode,
+            name: studentData.name,
+            first_name: studentData.firstName,
+            last_name: studentData.lastName
+          });
+          createdStudents.push({ ...student, qrCode: newCode });
           continue;
         }
 
@@ -155,7 +191,7 @@ export class ClassroomService {
       }
       return createdStudents;
     } catch (err) {
-      // Rollback newly created users if we hit a non-catchable error
+      // Rollback newly created users if we hit an error
       for (const uid of createdUserIds) {
         try {
           await User.findByIdAndDelete(uid);
