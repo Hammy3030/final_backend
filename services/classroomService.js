@@ -741,22 +741,6 @@ export class ClassroomService {
       }
     }
 
-    if (activityStatus && activityStatus !== 'all') {
-      const now = new Date();
-      if (activityStatus === 'active') {
-        const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-        matchFilters.updatedAt = { $gte: sevenDaysAgo };
-      } else if (activityStatus === 'inactive') {
-        const sevenDaysAgo = new Date(now.getTime() - (7 * 24 * 60 * 60 * 1000));
-        matchFilters.updatedAt = { $lt: sevenDaysAgo };
-      } else if (activityStatus === 'never') {
-        matchFilters.$or = [
-          { updatedAt: { $exists: false } },
-          { updatedAt: null }
-        ];
-      }
-    }
-
     if (testStatus && testStatus !== 'all') {
       if (testStatus === 'pre-done') {
         matchFilters.hasPreTest = true;
