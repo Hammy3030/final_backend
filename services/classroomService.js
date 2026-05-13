@@ -595,7 +595,7 @@ export class ClassroomService {
     };
   }
 
-  static async getClassroomStudents(classroomId, { search, gender, progress, testStatus, scoreLevel, gameStatus, activityStatus, sort } = {}) {
+  static async getClassroomStudents(classroomId, { search, gender, progress, testStatus, scoreLevel, gameStatus, sort } = {}) {
     const mongoose = (await import('mongoose')).default;
     const classroomObjectId = new mongoose.Types.ObjectId(classroomId);
 
@@ -733,11 +733,11 @@ export class ClassroomService {
 
     if (progress && progress !== 'all') {
       if (progress === 'completed') {
-        matchFilters.completionRate = 100;
+        matchFilters.completionRate = { $gte: 99.9 }; // Robust check for 100%
       } else if (progress === 'learning') {
-        matchFilters.completionRate = { $gt: 0, $lt: 100 };
+        matchFilters.completionRate = { $gt: 0, $lt: 99.9 };
       } else if (progress === 'not-started') {
-        matchFilters.completionRate = 0;
+        matchFilters.completionRate = { $lte: 0.1 };
       }
     }
 
