@@ -475,12 +475,16 @@ export class StudentService {
     if (!query.isDeleted) {
       query.isDeleted = false;
     }
-    const tests = await Test.find(query).sort({ createdAt: 1 });
+    // Ensure ObjectId for queries
+    const studentObjectId = typeof studentId === 'string' ? new mongoose.Types.ObjectId(studentId) : studentId;
+    const classroomObjectId = typeof classroomId === 'string' ? new mongoose.Types.ObjectId(classroomId) : classroomId;
+
+    const tests = await Test.find({ ...query, classroomId: classroomObjectId }).sort({ createdAt: 1 });
 
     const results = await Promise.all(tests.map(async (testItem) => {
       const questions = await Question.find({ testId: testItem._id }).sort({ orderIndex: 1 });
       const lesson = await Lesson.findOne({ _id: testItem.lessonId, isDeleted: false });
-      const attempts = await TestAttempt.find({ testId: testItem._id, studentId }).sort({ completedAt: -1 });
+      const attempts = await TestAttempt.find({ testId: testItem._id, studentId: studentObjectId }).sort({ completedAt: -1 });
 
       return {
         ...testItem.toObject(),
@@ -773,11 +777,15 @@ export class StudentService {
     if (!query.isDeleted) {
       query.isDeleted = false;
     }
-    const games = await Game.find(query);
+    // Ensure ObjectId for queries
+    const studentObjectId = typeof studentId === 'string' ? new mongoose.Types.ObjectId(studentId) : studentId;
+    const classroomObjectId = typeof classroomId === 'string' ? new mongoose.Types.ObjectId(classroomId) : classroomId;
+
+    const games = await Game.find({ ...query, classroomId: classroomObjectId });
 
     const results = await Promise.all(games.map(async (gameItem) => {
       const lesson = await Lesson.findOne({ _id: gameItem.lessonId, isDeleted: false });
-      const attempts = await GameAttempt.find({ gameId: gameItem._id, studentId }).sort({ completedAt: -1 });
+      const attempts = await GameAttempt.find({ gameId: gameItem._id, studentId: studentObjectId }).sort({ completedAt: -1 });
 
       return {
         ...gameItem.toObject(),
