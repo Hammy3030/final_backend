@@ -141,7 +141,10 @@ export class AuthController {
             ...(loginResult.user.role === 'TEACHER' && { school: loginResult.user.teacher?.school }),
             ...(loginResult.user.role === 'STUDENT' && {
               studentCode: loginResult.user.student?.studentCode,
-              classroom: classroomId
+              classroom: classroomId,
+              stars: loginResult.user.student?.stars || 0,
+              coins: loginResult.user.student?.coins || 0,
+              stamps: loginResult.user.student?.stamps || 0
             })
           },
           token
@@ -191,7 +194,10 @@ export class AuthController {
             ...(user.role === 'TEACHER' && { school: user.teacher?.school }),
             ...(user.role === 'STUDENT' && {
               studentCode: user.student?.studentCode,
-              classroom: classroomId
+              classroom: classroomId,
+              stars: user.student?.stars || 0,
+              coins: user.student?.coins || 0,
+              stamps: user.student?.stamps || 0
             })
           }
         }

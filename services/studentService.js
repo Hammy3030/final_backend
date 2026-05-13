@@ -8,6 +8,7 @@ import { LessonProgress } from '../models/LessonProgress.js';
 import { TestAttempt } from '../models/TestAttempt.js';
 import { GameAttempt } from '../models/GameAttempt.js';
 import { Notification } from '../models/Notification.js';
+import { Student } from '../models/Student.js';
 
 export class StudentService {
   static async getStudentLessons(studentId, classroomId) {
@@ -725,6 +726,8 @@ export class StudentService {
       else if (score >= 60) stars = 1;
 
       if (stars > 0) {
+        await Student.findByIdAndUpdate(studentId, { $inc: { coins: stars } });
+        
         await DatabaseService.createNotification({
           student_id: studentId,
           title: `⭐ ได้รับ ${stars} ดาว`,
