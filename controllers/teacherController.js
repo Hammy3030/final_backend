@@ -102,14 +102,11 @@ export class TeacherController {
         description: description || ''
       });
 
-      // [Requirement 1] Auto-generate Lessons, Games, Tests immediately
-      try {
-        console.log(`[Auto-Gen] Generating content for new classroom: ${classroom._id}`);
-        await LessonService.generateDefaultLessons(classroom._id, req.user.teacher.id);
-      } catch (genError) {
-        console.error('Auto-generate content failed:', genError);
-        // We don't fail the whole request, but log it
-      }
+      // [Requirement 1] Auto-generate Lessons, Games, Tests in background
+      console.log(`[Auto-Gen] Starting background content generation for: ${classroom._id}`);
+      LessonService.generateDefaultLessons(classroom._id, req.user.teacher.id)
+        .then(() => console.log(`[Auto-Gen] Successfully generated content for: ${classroom._id}`))
+        .catch(genError => console.error(`[Auto-Gen] Background generation failed for ${classroom._id}:`, genError));
 
       res.status(201).json({
         success: true,
