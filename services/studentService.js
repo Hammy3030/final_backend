@@ -820,12 +820,22 @@ export class StudentService {
 
     // Get game info for notification (game already fetched above)
     if (game) {
+      // Update student medals (stars)
+      let earnedStars = 0;
+      if (gameData.score >= 90) earnedStars = 3;
+      else if (gameData.score >= 80) earnedStars = 2;
+      else if (gameData.score >= 60) earnedStars = 1;
+
+      if (earnedStars > 0) {
+        await Student.findByIdAndUpdate(studentId, { $inc: { stars: earnedStars } });
+      }
+
       // Create notification for 100% score (gold medal)
       if (gameData.score === 100) {
         await DatabaseService.createNotification({
           student_id: studentId,
           title: `🥇 ได้เหรียญทอง`,
-          message: `คุณเล่นเกม "${game.title}" ได้คะแนน 100%`,
+          message: `คุณเล่นเกม "${game.title}" ได้คะแนน 100% (+3 เหรียญ)`,
           event_type: 'GAME_GOLD_MEDAL',
           type: 'SUCCESS'
         });
@@ -834,7 +844,7 @@ export class StudentService {
         await DatabaseService.createNotification({
           student_id: studentId,
           title: `🎮 ผ่านเกมแล้ว`,
-          message: `คุณเล่นเกม "${game.title}" ได้คะแนน ${gameData.score}%`,
+          message: `คุณเล่นเกม "${game.title}" ได้คะแนน ${gameData.score}% ${earnedStars > 0 ? `(+${earnedStars} เหรียญ)` : ''}`,
           event_type: 'GAME_PASSED',
           type: 'SUCCESS'
         });
