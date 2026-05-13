@@ -101,14 +101,38 @@ export class ClassroomService {
     try {
       for (let i = 0; i < studentsData.length; i++) {
         const studentData = studentsData[i];
-        const studentCodeNumber = String(existingStudentsCount + i + 1).padStart(3, '0');
+        
+        // 1. Check if student with same name already exists in THIS classroom
+        const nameTrimmed = (studentData.name || '').trim();
+        const existingStudent = await Student.findOne({ 
+          classroomId, 
+          name: { $regex: new RegExp(`^${nameTrimmed.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}$`, 'i') } 
+        });
+        
+        if (existingStudent) {
+          console.warn(`Student "${nameTrimmed}" already exists in classroom ${classroomId}, skipping.`);
+          continue;
+        }
+
+        const studentCodeNumber = String(existingStudentsCount + createdStudents.length + 1).padStart(3, '0');
         const studentCode = `stu${roomCode}-${studentCodeNumber}`;
+        const email = `${studentCode}@bearthai.local`;
+        
+        // 2. Double check if USER with this email already exists (Safety check for E11000)
+        const existingUser = await User.findOne({ email });
+        if (existingUser) {
+          // If user exists but is not linked to any student, we might be able to reuse or delete it.
+          // For now, let's just skip to be safe and avoid crash.
+          console.error(`User with email ${email} already exists but student does not, data inconsistency detected.`);
+          continue;
+        }
+
         const qrCode = studentCode;
         const defaultPassword = 'default123';
         const hashedPassword = await AuthService.hashPassword(defaultPassword);
 
         const user = await DatabaseService.createUser({
-          email: `${studentCode}@bearthai.local`,
+          email: email,
           password: hashedPassword,
           role: 'STUDENT',
           name: studentData.name,
@@ -131,6 +155,7 @@ export class ClassroomService {
       }
       return createdStudents;
     } catch (err) {
+      // Rollback newly created users if we hit a non-catchable error
       for (const uid of createdUserIds) {
         try {
           await User.findByIdAndDelete(uid);

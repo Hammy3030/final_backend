@@ -37,6 +37,7 @@ import adminRoutes from './routes/admin.js';
 import ttsRoutes from './routes/ttsRoutes.js';
 
 const app = express();
+app.set('trust proxy', 1);
 
 // Rate limiting
 const limiter = rateLimit({
