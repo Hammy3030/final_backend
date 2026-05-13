@@ -684,6 +684,8 @@ export class StudentService {
           await lessonProgress.save();
         } else if (test.type === 'POST_TEST' && isPassed) {
           lessonProgress.hasPassedPostTest = true;
+          lessonProgress.isCompleted = true; // Mark as completed on Post-test pass
+          lessonProgress.completedAt = new Date();
           await lessonProgress.save();
         }
       } else if (test.type === 'PRE_TEST' && isPassed) {
@@ -698,7 +700,9 @@ export class StudentService {
         await DatabaseService.createLessonProgress({
           student_id: studentObjectId,
           lesson_id: test.lessonId,
-          has_passed_post_test: true
+          has_passed_post_test: true,
+          is_completed: true,
+          completed_at: new Date()
         });
       }
     }
