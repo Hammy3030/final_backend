@@ -73,6 +73,18 @@ app.use(express.urlencoded({ extended: true }));
 // Health check & Root
 app.get('/', (req, res) => res.send('BearThai Backend is working!'));
 app.get('/health', (req, res) => res.json({ status: 'OK', timestamp: new Date().toISOString() }));
+app.get('/api/debug/env', (req, res) => {
+  const envStatus = {
+    DATABASE_URL: !!process.env.DATABASE_URL,
+    MONGODB_URI: !!process.env.MONGODB_URI,
+    JWT_SECRET: !!process.env.JWT_SECRET,
+    GEMINI_API_KEY: !!process.env.GEMINI_API_KEY,
+    EMAIL_ENABLED: process.env.EMAIL_ENABLED,
+    VERCEL: !!process.env.VERCEL,
+    NODE_ENV: process.env.NODE_ENV
+  };
+  res.json(envStatus);
+});
 
 // Static files
 if (process.env.NODE_ENV !== 'production' || !process.env.VERCEL) {

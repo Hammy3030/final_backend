@@ -102,6 +102,7 @@ export const errorHandler = (err, req, res, _next) => {
   return sendJson(req, res, err.status || 500, {
     success: false,
     message: err.message || 'เกิดข้อผิดพลาดในระบบ',
+    errorType: err.name,
     ...(process.env.NODE_ENV === 'development' && err.stack && { stack: err.stack })
   });
 };
