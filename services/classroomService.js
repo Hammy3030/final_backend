@@ -626,7 +626,27 @@ export class ClassroomService {
           as: 'progress'
         }
       },
-      // Lookup TestAttempts
+      // Lookup TestAttempts with Test details for categorization
+      {
+        $lookup: {
+          from: 'test_attempts',
+          let: { student_id: '$_id' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$studentId', '$$student_id'] } } },
+            {
+              $lookup: {
+                from: 'tests',
+                localField: 'testId',
+                foreignField: '_id',
+                as: 'testInfo'
+              }
+            },
+            { $unwind: '$testInfo' }
+          ],
+          as: 'testAttemptsDetails'
+        }
+      },
+      // Keep simple testAttempts for easy calculations
       {
         $lookup: {
           from: 'test_attempts',
@@ -657,31 +677,21 @@ export class ClassroomService {
             }
           },
           hasPreTest: {
-            $gt: [
-              {
-                $size: {
-                  $filter: {
-                    input: '$progress',
-                    as: 'p',
-                    cond: { $eq: ['$$p.hasPassedPreTest', true] }
-                  }
-                }
-              },
-              0
+            $or: [
+              // Check if attempted any PRE_TEST
+              { $gt: [{ $size: { $filter: { input: '$testAttemptsDetails', as: 'ta', cond: { $eq: ['$$ta.testInfo.type', 'PRE_TEST'] } } } }, 0] },
+              // Check if attempted any POST_TEST (implies pre-test done or skipped)
+              { $gt: [{ $size: { $filter: { input: '$testAttemptsDetails', as: 'ta', cond: { $eq: ['$$ta.testInfo.type', 'POST_TEST'] } } } }, 0] },
+              // Fallback to progress records
+              { $gt: [{ $size: { $filter: { input: '$progress', as: 'p', cond: { $or: [{ $eq: ['$$p.hasPassedPreTest', true] }, { $eq: ['$$p.hasPassedPostTest', true] }, { $eq: ['$$p.isCompleted', true] }] } } } }, 0] }
             ]
           },
           hasPostTest: {
-            $gt: [
-              {
-                $size: {
-                  $filter: {
-                    input: '$progress',
-                    as: 'p',
-                    cond: { $eq: ['$$p.hasPassedPostTest', true] }
-                  }
-                }
-              },
-              0
+            $or: [
+              // Check if attempted any POST_TEST
+              { $gt: [{ $size: { $filter: { input: '$testAttemptsDetails', as: 'ta', cond: { $eq: ['$$ta.testInfo.type', 'POST_TEST'] } } } }, 0] },
+              // Fallback to progress records
+              { $gt: [{ $size: { $filter: { input: '$progress', as: 'p', cond: { $eq: ['$$p.hasPassedPostTest', true] } } } }, 0] }
             ]
           },
           avgTestScore: {
@@ -698,6 +708,7 @@ export class ClassroomService {
               0
             ]
           },
+          playedTest: { $gt: [{ $size: '$testAttempts' }, 0] },
           playedGame: { $gt: [{ $size: '$gameAttempts' }, 0] },
           completionRate: {
             $cond: [
@@ -758,6 +769,7 @@ export class ClassroomService {
         matchFilters.avgTestScore = { $gte: 50, $lt: 80 };
       } else if (scoreLevel === 'care') {
         matchFilters.avgTestScore = { $lt: 50 };
+        matchFilters.playedTest = true;
       }
     }
 
@@ -783,6 +795,8 @@ export class ClassroomService {
         case 'game-desc': sortStage = { avgGameScore: -1 }; break;
         case 'name-desc': sortStage = { name: -1 }; break;
         case 'name-asc': sortStage = { name: 1 }; break;
+        case 'studentId-asc': sortStage = { studentCode: 1 }; break;
+        case 'studentId-desc': sortStage = { studentCode: -1 }; break;
         default: sortStage = { name: 1 };
       }
     }
