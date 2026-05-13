@@ -729,9 +729,16 @@ export class StudentService {
       else if (score >= 80) stars = 2;
       else if (score >= 60) stars = 1;
 
+      // Always increment to reward effort
+      await Student.findByIdAndUpdate(studentId, { 
+        $inc: { 
+          stars: stars,
+          coins: stars,
+          totalStars: stars 
+        } 
+      });
+
       if (stars > 0) {
-        await Student.findByIdAndUpdate(studentId, { $inc: { coins: stars } });
-        
         await DatabaseService.createNotification({
           student_id: studentId,
           title: `⭐ ได้รับ ${stars} ดาว`,
@@ -837,9 +844,13 @@ export class StudentService {
       else if (gameData.score >= 80) earnedStars = 2;
       else if (gameData.score >= 60) earnedStars = 1;
 
-      if (earnedStars > 0) {
-        await Student.findByIdAndUpdate(studentId, { $inc: { stars: earnedStars } });
-      }
+      // Always increment to reward effort
+      await Student.findByIdAndUpdate(studentId, { 
+        $inc: { 
+          stars: earnedStars,
+          totalMedals: earnedStars 
+        } 
+      });
 
       // Create notification for 100% score (gold medal)
       if (gameData.score === 100) {

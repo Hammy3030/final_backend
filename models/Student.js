@@ -42,18 +42,12 @@ const StudentSchema = new mongoose.Schema({
     index: true
   },
   // Gamification fields
-  stars: {
-    type: Number,
-    default: 0
-  },
-  coins: {
-    type: Number,
-    default: 0
-  },
-  stamps: {
-    type: Number,
-    default: 0
-  }
+  stars: { type: Number, default: 0 },
+  coins: { type: Number, default: 0 },
+  stamps: { type: Number, default: 0 },
+  totalStars: { type: Number, default: 0 },
+  totalMedals: { type: Number, default: 0 },
+  totalBadges: { type: Number, default: 0 }
 }, {
   timestamps: true,
   collection: 'students',
