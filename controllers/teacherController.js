@@ -102,15 +102,9 @@ export class TeacherController {
         description: description || ''
       });
 
-      // [Requirement 1] Auto-generate Lessons, Games, Tests in background
-      console.log(`[Auto-Gen] Starting background content generation for: ${classroom._id}`);
-      LessonService.generateDefaultLessons(classroom._id, req.user.teacher.id)
-        .then(() => console.log(`[Auto-Gen] Successfully generated content for: ${classroom._id}`))
-        .catch(genError => console.error(`[Auto-Gen] Background generation failed for ${classroom._id}:`, genError));
-
       res.status(201).json({
         success: true,
-        message: 'สร้างห้องเรียนและเนื้อหาอัตโนมัติสำเร็จ',
+        message: 'สร้างห้องเรียนสำเร็จ กรุณารอสักครู่ขณะระบบเตรียมเนื้อหา...',
         data: { classroom }
       });
     } catch (error) {

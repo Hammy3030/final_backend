@@ -1522,25 +1522,26 @@ export class LessonService {
       orderIndex: 8
     });
 
-    // Create all lessons
-    const createdLessons = [];
-    for (const lessonData of lessons) {
+    // Create all lessons in parallel
+    const createdLessons = await Promise.all(lessons.map(async (lessonData) => {
       const lesson = await this.createLesson({
         ...lessonData,
         classroomId,
         teacherId
       });
-      createdLessons.push(lesson);
 
-      // Generate default tests and games for each lesson automatically
+      // Generate default tests and games for each lesson in parallel
       try {
-        await this.generateDefaultTests(lesson._id, teacherId);
-        await this.generateDefaultGames(lesson._id, teacherId);
+        await Promise.all([
+          this.generateDefaultTests(lesson._id, teacherId),
+          this.generateDefaultGames(lesson._id, teacherId)
+        ]);
         console.log(`✅ Created tests and games for lesson: ${lesson.title}`);
       } catch (error) {
         console.error(`❌ Error creating tests/games for lesson ${lesson.title}:`, error);
       }
-    }
+      return lesson;
+    }));
 
     return createdLessons;
   }
